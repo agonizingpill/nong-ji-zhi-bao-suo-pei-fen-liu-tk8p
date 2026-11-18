@@ -20,9 +20,9 @@ docker compose exec -T backend python -m scripts.seed_demo
 
 |角色|账号|口令|主要权限|
 |---|---|---|---|
-|admin 质保主管|admin@gengchuan.local|Field2026!|台账编辑、受理、拆检、最终赔付/拒赔、旧件核验、结算核定和记账|
+|admin 质保主管|admin@gengchuan.local|Field2026!|台账编辑、受理、拆检、最终赔付/拒赔、索赔归并、旧件核验、结算核定和记账|
 |assessor 拆检评估员|assessor@gengchuan.local|Field2026!|新机登记、索赔、分流、拆检、旧件发件/收货、结算草稿；不可签署|
-|viewer 经销商观察员|viewer@gengchuan.local|Field2026!|只读九页及审计|
+|viewer 经销商观察员|viewer@gengchuan.local|Field2026!|只读十页及审计|
 
 ## 业务与页面
 
@@ -51,7 +51,7 @@ docker compose exec -T backend python -m scripts.seed_demo
 |队列|Redis7 list；共享 artifacts 卷保存模型指标与心跳|
 |安全横切|JWT8小时、角色校验、PBKDF2口令、审计、请求追踪、全局错误恢复|
 
-`backend/src/models.py` 领域实体；`schemas.py` 请求约束；`claim_service.py` 状态与关联规则；`risk_model.py` 算法；`worker.py` 队列；`main.py` 路由；`middlewares.py` 请求追踪和错误恢复。`backend/scripts/seed_demo.py` 仅插入自然键缺失的演示记录，不覆盖修改。`frontend/src/pages/` 九业务页；`components/common.js` 共享导航、状态、标题和通知；`utils/api.js` API/会话/页面状态；`utils/format.js` 转义和格式化。
+`backend/src/models.py` 领域实体；`schemas.py` 请求约束；`claim_service.py` 状态与关联规则；`risk_model.py` 算法；`worker.py` 队列；`main.py` 路由；`middlewares.py` 请求追踪和错误恢复。`backend/scripts/seed_demo.py` 仅插入自然键缺失的演示记录，不覆盖修改。`frontend/src/pages/` 十业务页；`components/common.js` 共享导航、状态、标题和通知；`utils/api.js` API/会话/页面状态；`utils/format.js` 转义和格式化。
 
 角色、索赔状态、故障部位枚举分别在 `backend/src/constants.py` 与 `frontend/src/constants.js` 定义；请求部位在 `backend/src/schemas.py` 的 Literal 中约束；角色校验在 `security.py`/`main.py`，状态转换在 `claim_service.py`/`worker.py`。共用状态徽标在索赔/风险/拆检三页复用。
 
@@ -78,6 +78,7 @@ Seed 另有 `CL-RETURN-DEMO`（已赔付、可发件）和 `CL-SETTLE-DEMO`（�
 7. 维修工位预约：RepairBay定义每日工时与启用状态，RepairAppointment绑定已赔付现场索赔、工位、日期和预约工时。对索赔加锁避免同一索赔重复活跃预约，对工位加锁累加该日所有预约容量；完工预约仍保留当日占用。待开工→维修中→已完工。实际超预约工时时只有主管填写至少8字原因才能完工，普通评估员不能以填写原因绕过。
 8. 备件库领退：SpareStock按故障部位记录可用件数，PartIssue关联预约和库位。未开工才可领料，要求对应Claim.part，锁库存拒绝不足；同预约只有一笔有效领料。开工必须领料并将领料转consumed。未开工可整笔退料一次，库存回加；已退记录保留，重新领料生成新流水，已使用不可退。
 9. 返修质量回访：RepairFollowup仅关联完工预约，记录维修后运行工时（非机具累计表读数）、漏油及异常噪声。正常为review、任一异常为rework，主管负责close。异常必须关联回访发生后新建的同索赔预约，并经新预约领料、开工、完工才能关闭；原预约、其他索赔或旧维修不可抵扣。回访保存当时的原结算快照，不修改结算金额或凭证。
+10. 索赔归并签署：同次故障被多家经销商重复报赔时，主管把同机具同部位、已分流未裁决的索赔归并为一组并指定主单，已有归并组可再合组。各单保留自己的争议概率与拆检记录；任一成员高风险缺证据时主单不可赔付，其他成员不可独立裁决或结算。主单签署后全组一起封存（成员为merged终态），仅主单沿用旧件核验和结算流程，不会重复赔付。
 
 |接口|权限/动作|
 |---|---|
@@ -94,6 +95,23 @@ Seed 另有 `CL-RETURN-DEMO`（已赔付、可发件）和 `CL-SETTLE-DEMO`（�
 seed新增BAY-HYD(8h/日)、BAY-QUICK(4h/日)、BAY-OFF停用，以及hydraulic20/engine5/transmission3件备件。可用CL-RETURN-DEMO或CL-SETTLE-DEMO已赔付索赔演练预约→匹配领料→开工→完工→质量回访；异常再安排同索赔新预约返工后主管关闭。自然键只补缺失，重复seed不改已扣库存、维修实耗、工位容量、回访与原结算。新增5张表，不给原历史表加列，也不回填改变旧签结。
 
 当前范围：预约为按日工时额度，无具体起止时刻、跨工位调度或取消；完工超时只留主管依据，不重分配其他预约。工位停用只阻止新预约，已确认维修仍可履约；无工资、采购补货、拆单部分退料、仓库扫码或真实售后联系。回访是人工登记，不外发消息；异常关闭证明同索赔返工完工，不替代另一轮质量验收或重开原赔款。新增证据见 `test-artifacts/gb-1022/v3/`。
+
+## 索赔归并（第四轮扩展）
+
+`merge_models.py` 建模归并组、成员与互斥哨兵行；`merge_service.py` 负责归并/合组、阻断原因计算与整组封存；`merge_schemas.py` 约束请求；`merge_routes.py` 提供独立事务与角色权限。前端 `pages/merges.js` 为第十页，可归并、查看成员风险及阻断原因并签署；拆检裁决页同步提示归并关系。
+
+- 归并仅限主管，要求全部索赔同机具、同部位且已分流未裁决；包含已结案（paid/denied/merged/过保）或历史索赔时整次拒绝，单事务回滚，原签结不变。
+- 已有归并组可合组：请求涉及的所有组合并为一组并重新指定主单；同一归并请求重试时成员与主单一致则直接返回原组，不新增分组。
+- 并发互斥：归并与裁决先锁 `merge_lock` 哨兵行彼此串行，再按 id 顺序锁索赔行；`merge_members.claim_id` 唯一保证一份索赔只属一组，`merge_groups.primary_claim_id` 唯一保证不会出现两个主单；成员封存为 merged 终态后无法进入返厂、结算与维修，结构上杜绝重复赔付。
+- 主单签署时全组同事务封存：成员索赔转 merged、各单拆检记录与概率保留、拆检裁决同步；主单为 paid/denied，仅主单可继续旧件核验与结算。
+
+|接口|权限/动作|
+|---|---|
+|GET /merge-groups|三角色读取归并组、成员风险与阻断原因|
+|POST /merge-groups|admin 归并或合组并指定主单|
+|POST /claims/{id}/decision|admin 签署主单即整组封存；签署成员返回 409|
+
+Seed 新增 CL-DUP-A（主单、低风险、证据齐）、CL-DUP-B（同次故障重复报赔、高风险 0.72、证据待补）组成的待签署归并组，以及未归并的 CL-DUP-C 用于演练合组；另写入 merge_lock 哨兵行。自然键只补缺失，重复 seed 不改已有归并组与签结。新增 3 张表，不给原历史表加列。
 
 ## 已知范围
 

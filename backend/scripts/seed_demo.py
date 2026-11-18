@@ -1,4 +1,5 @@
 import random, json
+from datetime import datetime,timezone
 from sqlalchemy import select,func
 from src.database import Base,engine,Session
 from src.models import User,Machine,Claim,Inspection
@@ -8,6 +9,7 @@ from src.settlement_models import Settlement
 from src.repair_models import RepairBay,RepairAppointment
 from src.spare_models import SpareStock,PartIssue
 from src.followup_models import RepairFollowup
+from src.merge_models import MergeGroup,MergeMember,MergeLock
 
 def seed():
     Base.metadata.create_all(engine)
@@ -42,6 +44,17 @@ def seed():
             if not s.scalar(select(RepairBay).where(RepairBay.code==code)):s.add(RepairBay(code=code,daily_hours=cap,active=active))
         for code,part,qty in [('SP-HYD-01','hydraulic',20),('SP-ENG-01','engine',5),('SP-TRANS-01','transmission',3)]:
             if not s.scalar(select(SpareStock).where(SpareStock.code==code)):s.add(SpareStock(code=code,part=part,available_qty=qty))
+    with Session.begin() as s:
+        if not s.scalar(select(MergeLock).where(MergeLock.id==1)):s.add(MergeLock(id=1))
+        m=s.scalar(select(Machine).where(Machine.serial=='GC-2408'))
+        for code,risk,findings,ev in [('CL-DUP-A',.31,'液压泵内泄，密封件磨损，照片与工时计已核对完整',True),('CL-DUP-B',.72,'另一经销商就同次渗漏重复报赔，油样报告待补',False),('CL-DUP-C',.18,'',False)]:
+            if not s.scalar(select(Claim).where(Claim.code==code)):
+                c=Claim(code=code,machine_id=m.id,part='hydraulic',hours_at_failure=860,age_days=400,leak_flag=True,risk=risk,status='assessed',historical=False,assessment_note='模拟分流完成，用于归并剧本');s.add(c);s.flush()
+                if findings:s.add(Inspection(claim_id=c.id,findings=findings,evidence_complete=ev,decision='pending'))
+        a=s.scalar(select(Claim).where(Claim.code=='CL-DUP-A'));b=s.scalar(select(Claim).where(Claim.code=='CL-DUP-B'))
+        if not s.scalar(select(MergeMember).where(MergeMember.claim_id.in_([a.id,b.id]))):
+            g=MergeGroup(primary_claim_id=a.id,state='open',created_by='admin@gengchuan.local',created_at=datetime.now(timezone.utc).isoformat());s.add(g);s.flush()
+            s.add(MergeMember(group_id=g.id,claim_id=a.id));s.add(MergeMember(group_id=g.id,claim_id=b.id))
     with Session() as s:
-        print(json.dumps({k:s.scalar(select(func.count()).select_from(v)) for k,v in [('users',User),('machines',Machine),('claims',Claim),('inspections',Inspection),('part_returns',PartReturn),('settlements',Settlement),('repair_bays',RepairBay),('repair_appointments',RepairAppointment),('spare_stocks',SpareStock),('part_issues',PartIssue),('repair_followups',RepairFollowup)]}))
+        print(json.dumps({k:s.scalar(select(func.count()).select_from(v)) for k,v in [('users',User),('machines',Machine),('claims',Claim),('inspections',Inspection),('part_returns',PartReturn),('settlements',Settlement),('repair_bays',RepairBay),('repair_appointments',RepairAppointment),('spare_stocks',SpareStock),('part_issues',PartIssue),('repair_followups',RepairFollowup),('merge_groups',MergeGroup),('merge_members',MergeMember)]}))
 if __name__=='__main__':seed()

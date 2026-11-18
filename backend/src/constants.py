@@ -1,5 +1,5 @@
 ROLES = ('admin','assessor','viewer')
-CLAIM_STATES = ('submitted','queued','assessed','out_of_warranty','paid','denied','failed')
+CLAIM_STATES = ('submitted','queued','assessed','out_of_warranty','paid','denied','failed','merged')
 PARTS = ('hydraulic','engine','transmission')
 
 RETURN_STATES=('dispatched','received','verified')

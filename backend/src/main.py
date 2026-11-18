@@ -13,6 +13,7 @@ from .claim_service import obj,get,audit,claim_view,submit,inspect,adjudicate
 from .middlewares import RequestTrace,Recovery
 from .fulfilment_routes import router as fulfilment_router
 from .workshop_routes import router as workshop_router
+from .merge_routes import router as merge_router
 from scripts.seed_demo import seed
 logging.basicConfig(level=logging.INFO)
 r=Redis.from_url(os.getenv('REDIS_URL','redis://redis:6379/0'),decode_responses=True)
@@ -27,6 +28,7 @@ app=FastAPI(title='耕川 · 质保田间档案',lifespan=lifespan)
 app.add_middleware(RequestTrace);app.add_middleware(Recovery)
 app.include_router(fulfilment_router)
 app.include_router(workshop_router)
+app.include_router(merge_router)
 @app.exception_handler(IntegrityError)
 async def duplicate(request,e):return JSONResponse({'detail':'编号已存在或关联数据不合法'},status_code=409)
 @app.get('/health')
